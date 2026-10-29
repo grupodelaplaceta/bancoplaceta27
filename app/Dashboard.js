@@ -5,7 +5,8 @@ import { api, eur, list, uid, fdate, signed, acct, bal } from '../lib/client'
 const TABS = [['transactions', 'Movimientos'], ['cards', 'Tarjetas'], ['receipts', 'Recibos'], ['membership', 'Membresía'], ['products', 'Productos']]
 const IBAN_RE = /^[A-Z0-9-]{6,40}$/
 
-export default function Dashboard({ name }) {
+export default function Dashboard({ name, hasDip }) {
+  const [askDip, setAskDip] = useState(!hasDip)
   const [ibans, setIbans] = useState([]), [iban, setIban] = useState(''), [accs, setAccs] = useState({})
   const [tab, setTab] = useState('transactions'), [modal, setModal] = useState(null), [toast, setToast] = useState('')
   const [rev, setRev] = useState(0), [boot, setBoot] = useState({ loading: true, err: '' })
@@ -33,11 +34,12 @@ export default function Dashboard({ name }) {
   const total = okAccs.reduce((s, x) => s + bal(x), 0)
   const first = (name || 'Cliente').split(' ')[0]
 
+  if (askDip) return <DipPrompt name={name} cancel={hasDip ? () => setAskDip(false) : null} />
   return (
     <div className="app">
       <header>
         <div className="brand"><span className="logo sm">P</span>La Placeta</div>
-        <div className="who"><span>Hola, {first}</span><a href="/api/auth/logout" className="ghost">Salir</a></div>
+        <div className="who"><span>Hola, {first}</span><button className="ghost" onClick={() => setAskDip(true)}>Cambiar DIP</button><a href="/api/auth/logout" className="ghost">Salir</a></div>
       </header>
 
       <main className="grid">
@@ -246,4 +248,25 @@ function Transfer({ from, others, balance, currency, onClose, onDone }) {
       {ref && <button className="ghost" onClick={track}>Comprobar estado</button>}{stat && <p className="s"><b>Estado:</b> {stat}</p>}
       <button className="btn big" onClick={() => onDone('Transferencia enviada')}>Listo</button></div>}
   </div></div>)
+}
+
+/* ---------- DIP temporal ---------- */
+function DipPrompt({ name, cancel }) {
+  const [v, setV] = useState(''), [e, setE] = useState(''), [b, setB] = useState(false)
+  const go = async (ev) => {
+    ev.preventDefault(); setB(true); setE('')
+    try {
+      const r = await fetch('/api/auth/dip', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dip: v }) })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || 'Error ' + r.status)
+      location.reload()
+    } catch (x) { setE(x.message); setB(false) }
+  }
+  return (<main className="login"><div className="login-art"><div className="orb o1" /><div className="orb o2" /><h1>Un último<br />paso.</h1><p>Necesitamos tu DIP para buscar tus cuentas.</p></div>
+    <form className="login-card" onSubmit={go}><div className="logo">P</div><h2>Hola, {(name || 'Cliente').split(' ')[0]}</h2>
+      <p className="muted">Introduce tu DIP. Solo se guarda en esta sesión, nunca en el navegador.</p>
+      <label className="s" style={{ marginTop: 16, fontWeight: 600 }}>DIP<input autoFocus required value={v} onChange={(x) => setV(x.target.value)} placeholder="Tu DIP" style={{ marginTop: 6 }} /></label>
+      {e && <div className="err">{e}</div>}
+      <button className="btn big" disabled={b}>{b ? 'Buscando…' : 'Ver mis cuentas'}</button>
+      {cancel && <button type="button" className="btn big ghost-btn" onClick={cancel}>Cancelar</button>}</form></main>)
 }
