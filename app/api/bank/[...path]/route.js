@@ -1,68 +1,91 @@
-import crypto from 'crypto'
-import { verify } from '../../../../lib/session'
-import { ownedIbans, invalidate } from '../../../../lib/owned'
+import { NextResponse } from 'next/server'
+import { readSession, readIbans, setIbans, sameOrigin, MAX_IBANS } from '../../../../lib/session'
+import { upstream, unwrapServer } from '../../../../lib/upstream'
+import { matchRule, ALLOWED_QS } from '../../../../lib/routes'
+import { normIban, isIban, isIdemKey, isSegment, cleanAmount } from '../../../../lib/validate'
+import { hit } from '../../../../lib/ratelimit'
 
-const BASE = 'https://placetaone.vercel.app/api/v1/'
-const SEG = '[A-Za-z0-9_.-]{1,64}'
-// Solo se exponen al navegador los endpoints de la API v1 que la app realmente usa.
-const ALLOW = {
-  GET: [
-    /^products$/,
-    new RegExp(`^accounts/${SEG}$`),
-    new RegExp(`^accounts/${SEG}/(transactions|receipts|cards|membership)$`),
-    new RegExp(`^transfers/${SEG}$`),
-  ],
-  POST: [/^accounts$/, /^transfers$/, new RegExp(`^accounts/${SEG}/membership/renew$`)],
+export const dynamic = 'force-dynamic'
+
+const J = (status, body, headers = {}) => NextResponse.json(body, { status, headers: { 'cache-control': 'no-store', ...headers } })
+const bad = (status, message, headers) => J(status, { error: { message } }, headers)
+const idStr = (v) => (typeof v === 'string' && v.length <= 80) || (typeof v === 'number' && Number.isFinite(v))
+
+async function handle(req, { params }) {
+  const get = (n) => req.cookies.get(n)?.value
+  const s = readSession(get)
+  if (!s) return bad(401, 'Tu sesión ha caducado. Vuelve a entrar con PlacetaID.')
+  const method = req.method
+  if (method !== 'GET' && !sameOrigin(req)) return bad(403, 'Origen no permitido.')
+
+  // 1) Ruta: solo segmentos seguros y solo endpoints de la lista blanca.
+  const segs = (params.path || []).map((x) => { try { return decodeURIComponent(x) } catch { return '' } })
+  if (!segs.length || !segs.every(isSegment)) return bad(404, 'Ruta no encontrada.')
+  const owned = readIbans(get, s)
+  if (segs[0] === 'accounts' && segs[1]) segs[1] = normIban(segs[1])
+  const path = segs.join('/')
+  const found = matchRule(method, path)
+  if (!found) return bad(404, 'Operación no disponible.')
+  const { rule, m } = found
+
+  // 2) Límite de peticiones por usuario.
+  const rl = hit('r:' + s.uid, 150, 60_000)
+  const wl = method === 'POST' ? hit('w:' + s.uid, 20, 60_000) : { ok: true }
+  if (!rl.ok || !wl.ok) {
+    const retry = Math.max(rl.ok ? 0 : rl.retry, wl.ok ? 0 : wl.retry)
+    return bad(429, 'Demasiadas peticiones.', { 'retry-after': String(retry) })
+  }
+
+  // 3) Propiedad: solo cuentas vinculadas a este usuario.
+  if (rule.own && !owned.includes(normIban(m[rule.own]))) return bad(403, 'Esa cuenta no está vinculada a tu usuario.')
+
+  // 4) Cuerpo saneado: al banco solo llegan los campos esperados.
+  let body, idem
+  if (method === 'POST') {
+    idem = req.headers.get('idempotency-key')
+    if (!isIdemKey(idem)) return bad(400, 'Falta una clave de idempotencia válida (Idempotency-Key).')
+    const raw = await req.json().catch(() => ({}))
+    const b = raw && typeof raw === 'object' ? raw : {}
+    if (rule.create) {
+      if (owned.length >= MAX_IBANS) return bad(422, `Has alcanzado el máximo de ${MAX_IBANS} cuentas vinculadas.`)
+      body = {}
+      if (idStr(b.product_id)) body.product_id = b.product_id
+      if (idStr(b.product_code)) body.product_code = b.product_code
+      if (!Object.keys(body).length) return bad(422, 'Elige un producto.')
+    } else if (rule.transfer) {
+      const from = normIban(b.from_iban), to = normIban(b.to_iban)
+      if (!isIban(from) || !isIban(to)) return bad(422, 'Los IBAN no son válidos.')
+      if (!owned.includes(from)) return bad(403, 'La cuenta de origen no está vinculada a tu usuario.')
+      if (from === to) return bad(422, 'El destino no puede ser la misma cuenta.')
+      const amount = cleanAmount(b.amount)
+      if (amount === null) return bad(422, 'El importe no es válido (máximo 2 decimales).')
+      const memo = typeof b.memo === 'string' ? b.memo.trim().slice(0, 140) : ''
+      body = { from_iban: from, to_iban: to, amount, ...(memo && { memo }) }
+    } else body = {}
+  }
+
+  // 5) Consulta al banco. Solo se reenvían los parámetros permitidos.
+  const qs = new URLSearchParams()
+  for (const k of ALLOWED_QS) { const v = req.nextUrl.searchParams.get(k); if (v && v.length <= 64) qs.set(k, v) }
+  const r = await upstream(path, { method, body, idem, search: qs.size ? '?' + qs : '' })
+  const headers = r.retryAfter ? { 'retry-after': r.retryAfter } : {}
+  if (r.replay) headers['idempotent-replay'] = r.replay
+
+  // 401 del banco = nuestra clave es inválida, no la sesión del usuario (que haría cerrar sesión).
+  if (r.status === 401) return bad(502, 'El servidor no tiene una clave de API válida para el banco.')
+
+  // 6) Efectos posteriores.
+  if (rule.ref && r.status < 300) {
+    const t = unwrapServer(r.json)
+    const ends = [t.from_iban, t.from?.iban, t.to_iban, t.to?.iban].map(normIban)
+    if (!ends.some((i) => owned.includes(i))) return bad(404, 'Transferencia no encontrada.')
+  }
+  const res = J(r.status, r.json, headers)
+  if (rule.create && r.status < 300) {
+    const ni = normIban(unwrapServer(r.json).iban)
+    if (isIban(ni) && !owned.includes(ni)) setIbans(res, s, [...owned, ni])
+  }
+  return res
 }
-const json = (o, status = 200, h = {}) => Response.json(o, { status, headers: { 'cache-control': 'no-store', ...h } })
 
-async function proxy(req, { params }) {
-  const s = verify(req.cookies.get('sess')?.value)
-  if (!s || s.exp < Date.now()) return json({ error: 'Sesión caducada. Vuelve a entrar.' }, 401)
-
-  const path = params.path.join('/')
-  if (!(ALLOW[req.method] || []).some((r) => r.test(path))) return json({ error: 'Operación no permitida' }, 404)
-
-  if (req.method === 'POST') { // protección CSRF: el origen debe ser la propia app
-    const o = req.headers.get('origin'), host = req.headers.get('host')
-    if (o && new URL(o).host !== host) return json({ error: 'Origen no permitido' }, 403)
-  }
-
-  // Solo se puede operar sobre cuentas del propio cliente (buscadas por su DIP en el servidor).
-  let mine
-  try { mine = await ownedIbans(s.dip) } catch (e) { return json({ error: e.message }, 502) }
-  const m = path.match(/^accounts\/([^/]+)/)
-  if (m && !mine.includes(m[1])) return json({ error: 'Esa cuenta no es tuya' }, 403)
-  let body
-  if (req.method === 'POST') {
-    body = await req.text()
-    try {
-      const b = JSON.parse(body || '{}')
-      if (path === 'transfers' && !mine.includes(b.from_iban)) return json({ error: 'La cuenta de origen no es tuya' }, 403)
-      if (path === 'accounts') { b.dip = s.dip; b.holder_name = b.holder_name || s.name; body = JSON.stringify(b) }
-    } catch { return json({ error: 'JSON no válido' }, 400) }
-  }
-
-  const headers = { 'x-api-key': process.env.PLACETA_API_KEY || '', accept: 'application/json' }
-  const init = { method: req.method, headers, signal: AbortSignal.timeout(15000) }
-  if (req.method === 'POST') {
-    headers['content-type'] = 'application/json'
-    // El cliente aporta la clave para que un reintento o doble clic no duplique el movimiento.
-    const k = req.headers.get('x-idempotency-key')
-    headers['Idempotency-Key'] = k && /^[\w-]{8,100}$/.test(k) ? k : crypto.randomUUID()
-    init.body = body
-  }
-  try {
-    const r = await fetch(BASE + path.split('/').map(encodeURIComponent).join('/') + req.nextUrl.search, init)
-    const text = await r.text()
-    if (r.ok && req.method === 'POST') invalidate(s.dip)
-    if (r.ok && /^transfers\//.test(path)) { // seguimiento: solo transferencias que tocan una cuenta propia
-      try { const t = JSON.parse(text); const t2 = t.transfer || t; if (![t2.from_iban, t2.to_iban].some((i) => mine.includes(i))) return json({ error: 'Transferencia no encontrada' }, 404) } catch {}
-    }
-    const extra = r.headers.get('retry-after') ? { 'retry-after': r.headers.get('retry-after') } : {}
-    return new Response(text, { status: r.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...extra } })
-  } catch {
-    return json({ error: 'El banco no responde. Inténtalo en unos segundos.' }, 504)
-  }
-}
-export { proxy as GET, proxy as POST }
+export { handle as GET, handle as POST }

@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server'
-export async function GET() {
-  const r = NextResponse.redirect((process.env.APP_URL || 'https://bancoplaceta27.vercel.app') + '/')
-  r.cookies.delete('sess'); return r
+import { appBase } from '../../../../lib/session'
+
+export const dynamic = 'force-dynamic'
+
+// Cierra la sesión pero conserva las cuentas vinculadas (cookie "ibn"), atadas a tu uid.
+function out(req) {
+  const r = NextResponse.redirect(appBase(req) + '/', 303)
+  r.cookies.delete('sess')
+  return r
 }
+export { out as GET, out as POST }

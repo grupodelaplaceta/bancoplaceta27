@@ -1,24 +1,33 @@
 import { NextResponse } from 'next/server'
-import { sign, hasSecret } from '../../lib/session'
+import { appBase, setSession } from '../../lib/session'
+
+export const dynamic = 'force-dynamic'
+
 export async function GET(req) {
-  const app = process.env.APP_URL || 'https://bancoplaceta27.vercel.app'
+  const base = appBase(req)
   const q = req.nextUrl.searchParams
-  const ok = q.get('state') && q.get('state') === req.cookies.get('pid_state')?.value
-  const fail = (m) => NextResponse.redirect(app + '/?error=' + encodeURIComponent(m))
-  if (!hasSecret()) return fail('Falta configurar SESSION_SECRET en el servidor.')
-  if (!ok || !q.get('code')) return fail('Sesión no válida. Inténtalo de nuevo.')
-  const res = await fetch('https://placetaid-web-plan2027.vercel.app/api/public/exchange', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ client_id: process.env.PLACETAID_CLIENT_ID, client_secret: process.env.PLACETAID_CLIENT_SECRET, code: q.get('code'), redirect_uri: app + '/placetaid' })
-  })
-  if (!res.ok) return fail('PlacetaID no ha podido validar el acceso.')
-  const d = await res.json()
+  const fail = (m) => { const r = NextResponse.redirect(base + '/?error=' + encodeURIComponent(m)); r.cookies.delete('pid_state'); return r }
+
+  if (q.get('error')) return fail('Has cancelado el acceso con PlacetaID.')
+  const state = req.cookies.get('pid_state')?.value
+  if (!state || q.get('state') !== state || !q.get('code')) return fail('Sesión no válida. Inténtalo de nuevo.')
+  if (!process.env.PLACETAID_CLIENT_ID || !process.env.PLACETAID_CLIENT_SECRET) return fail('Falta configurar PlacetaID en el servidor.')
+
+  let d
+  try {
+    const res = await fetch('https://placetaid-web-plan2027.vercel.app/api/public/exchange', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ client_id: process.env.PLACETAID_CLIENT_ID, client_secret: process.env.PLACETAID_CLIENT_SECRET, code: q.get('code'), redirect_uri: base + '/placetaid' }),
+    })
+    if (!res.ok) return fail('PlacetaID no ha podido validar el acceso.')
+    d = await res.json()
+  } catch { return fail('No se ha podido contactar con PlacetaID.') }
+
   const u = d.user || d.profile || d
   const name = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.display_name || 'Cliente'
-  const dip = String(u.dip || u.DIP || u.dip_number || u.document_id || u.document || u.id || u.sub || '').trim()
-  let tok; try { tok = sign({ name, dip, exp: Date.now() + 36e5 * 8 }) } catch { return fail('Configuración incompleta: falta SESSION_SECRET en Vercel.') }
-  const r = NextResponse.redirect(app + '/')
-  r.cookies.set('sess', tok, { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 28800 })
+  const uid = u.id || u.sub || u.user_id || u.uid || u.email || name
+  const r = NextResponse.redirect(base + '/')
+  try { setSession(r, { uid, name }) } catch (e) { return fail(e.message) }
   r.cookies.delete('pid_state')
   return r
 }
