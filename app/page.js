@@ -18,7 +18,7 @@ export default function Page({ searchParams }) {
           <div className="pcard tone-violet c1"><span className="pcard-top"><span className="pcard-type">Cuenta Corriente</span><span className="pcard-chip" /></span><span className="pcard-bal">1.250,40 €</span><span className="pcard-bot"><span className="pcard-iban">PZ-0001-0001</span></span></div>
         </div>
         <h1>Tu dinero, a la vista y a tu ritmo.</h1>
-        <p>Cuentas, tarjetas, recibos y transferencias de La Placeta en un único sitio.</p>
+        <p>Cuentas, tarjetas, transferencias programadas, recibos y diseños de La Placeta en un único sitio.</p>
       </div>
       <section className="login-card">
         <div className="logo">P</div>
@@ -26,7 +26,7 @@ export default function Page({ searchParams }) {
         <p className="muted">Entra con tu PlacetaID. No guardamos tu contraseña.</p>
         {err && <div className="err" role="alert">{err}</div>}
         <a className="btn primary big" href="/api/auth/login">{dev ? 'Entrar (modo pruebas)' : 'Entrar con PlacetaID'}</a>
-        <p className="muted s fine">Conexión cifrada. La sesión caduca a las 8 horas y las operaciones que mueven dinero nunca se duplican.</p>
+        <p className="muted s fine">Conexión cifrada. La sesión bancaria dura pocos minutos y las operaciones que mueven dinero nunca se duplican.</p>
       </section>
     </main>
   )

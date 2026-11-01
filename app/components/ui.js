@@ -1,6 +1,6 @@
 'use client'
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { eur, fmtDate, statusTone, statusText, signed, txTitle, txDate, dayKey, tone } from '../../lib/shape'
+import { eur, fmtDate, statusTone, statusText, signed, txTitle, txDate, dayKey, tone, pick } from '../../lib/shape'
 
 export const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
@@ -38,6 +38,12 @@ const P = {
   shield: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
   chev: 'M6 9l6 6 6-6',
   right: 'M5 12h14M13 6l6 6-6 6',
+  bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9zM13.7 21a2 2 0 0 1-3.4 0',
+  lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
+  cal: 'M3 5h18v16H3zM3 10h18M8 2v4M16 2v4',
+  users: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8',
+  gift: 'M20 12v10H4V12M2 7h20v5H2zM12 22V7M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7z',
+  doc: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h8',
 }
 export const Icon = ({ n, size = 20, className }) => (
   <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={P[n]} /></svg>
@@ -100,14 +106,20 @@ export const KV = ({ rows }) => rows.length ? (
   <dl className="kv">{rows.map(([k, v], i) => <div key={k + i}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
 ) : null
 
+/** Pestañas internas de una pantalla. */
+export const Tabs = ({ value, onChange, items, label = 'Secciones' }) => (
+  <div className="seg tabs" role="tablist" aria-label={label}>
+    {items.map(([k, l, n]) => <button key={k} role="tab" aria-selected={value === k} className={value === k ? 'on' : ''} onClick={() => onChange(k)}>{l}{!!n && <i className="cnt">{n}</i>}</button>)}
+  </div>
+)
+
 /** La cuenta como un objeto físico: lo memorable de la interfaz. El color indica el tipo de cuenta. */
-export function AccountCard({ iban, acc, state, active, onClick }) {
-  const loading = state?.loading && !state?.data
+export function AccountCard({ acc, active, onClick }) {
   return (
-    <button className={'pcard tone-' + tone(acc) + (active ? ' on' : '')} onClick={onClick} aria-pressed={!!active} aria-label={'Cuenta ' + iban}>
-      <span className="pcard-top"><span className="pcard-type">{acc?.iban ? acc.type : loading ? 'Cargando…' : 'Cuenta'}</span><span className="pcard-chip" aria-hidden="true" /></span>
-      <span className="pcard-bal sens">{state?.error && !state?.data ? 'No disponible' : loading ? '···' : eur(acc?.balance, acc?.currency)}</span>
-      <span className="pcard-bot"><span className="pcard-iban">{iban}</span>{acc?.status && <span className="pcard-st">{statusText(acc.status)}</span>}</span>
+    <button className={'pcard tone-' + tone(acc) + (active ? ' on' : '')} onClick={onClick} aria-pressed={!!active} aria-label={'Cuenta ' + acc.iban}>
+      <span className="pcard-top"><span className="pcard-type">{acc.name}</span><span className="pcard-chip" aria-hidden="true" /></span>
+      <span className="pcard-bal sens">{eur(acc.balance, acc.currency)}</span>
+      <span className="pcard-bot"><span className="pcard-iban">{acc.iban}</span>{acc.status && acc.status !== 'active' ? <span className="pcard-st">{statusText(acc.status)}</span> : acc.role && acc.role !== 'holder' ? <span className="pcard-st">{acc.role}</span> : null}</span>
     </button>
   )
 }
@@ -118,8 +130,8 @@ export function TxRow({ t, iban, onClick }) {
     <li>
       <button className="row" onClick={onClick}>
         <span className={'dot ' + (out ? 'out' : 'in')}><Icon n={out ? 'up' : 'down'} size={18} /></span>
-        <span className="row-m"><b>{txTitle(t)}</b><small>{fmtDate(txDate(t), { day: 'numeric', month: 'short' })}{t.status ? ' · ' + statusText(t.status) : ''}</small></span>
-        <strong className={'amt sens ' + (out ? 'neg' : 'pos')}>{out ? '' : '+'}{eur(n, t.currency)}</strong>
+        <span className="row-m"><b>{txTitle(t)}</b><small>{fmtDate(txDate(t), { day: 'numeric', month: 'short' })}{pick(t, ['estado', 'status']) ? ' · ' + statusText(pick(t, ['estado', 'status'])) : ''}</small></span>
+        <strong className={'amt sens ' + (out ? 'neg' : 'pos')}>{out ? '' : '+'}{eur(n, t.moneda || t.currency)}</strong>
       </button>
     </li>
   )

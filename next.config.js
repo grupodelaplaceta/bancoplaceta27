@@ -1,6 +1,6 @@
 const csp = [
   "default-src 'self'", "script-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:", "font-src 'self' data:", "connect-src 'self'",
+  "img-src 'self' data: https:", "font-src 'self' data:", "connect-src 'self'",
   "object-src 'none'", "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'",
 ].join('; ')
 

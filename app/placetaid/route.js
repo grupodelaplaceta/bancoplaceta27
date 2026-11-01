@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server'
-import { appBase, setSession } from '../../lib/session'
+import { appBase } from '../../lib/session'
+import { startSession } from '../../lib/login'
 
 export const dynamic = 'force-dynamic'
+
+// El DIP (documento de identidad del cliente) viene en el perfil de PlacetaID.
+// Si tu PlacetaID lo devuelve con otro nombre, indícalo en PLACETAID_DIP_FIELD.
+const dipOf = (u) => {
+  const keys = [process.env.PLACETAID_DIP_FIELD, 'dip', 'DIP', 'dni', 'nif', 'document', 'document_number', 'documento'].filter(Boolean)
+  for (const k of keys) { const v = u?.[k]; if (typeof v === 'string' && v.trim()) return v.trim().toUpperCase() }
+  return ''
+}
 
 export async function GET(req) {
   const base = appBase(req)
@@ -26,8 +35,11 @@ export async function GET(req) {
   const u = d.user || d.profile || d
   const name = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || u.display_name || 'Cliente'
   const uid = u.id || u.sub || u.user_id || u.uid || u.email || name
+  const dip = dipOf(u) || dipOf(d)
+
   const r = NextResponse.redirect(base + '/')
-  try { setSession(r, { uid, name }) } catch (e) { return fail(e.message) }
+  const err = await startSession(r, { uid, name, dip })
+  if (err) return fail(err)
   r.cookies.delete('pid_state')
   return r
 }

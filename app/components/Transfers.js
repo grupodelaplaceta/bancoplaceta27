@@ -1,87 +1,126 @@
 'use client'
 import { useState } from 'react'
-import { api, store } from '../../lib/client'
-import { unwrap, pick, eur, fmtDateTime, facts, statusText } from '../../lib/shape'
-import { useApp, Icon, Badge, ErrorBox, Empty, CopyBtn, KV, Spinner } from './ui'
+import { useRes, api, newKey } from '../../lib/client'
+import { list, pick, eur, fmtDateTime } from '../../lib/shape'
+import { useApp, Icon, ErrorBox, Empty, Skel, Spinner, Tabs } from './ui'
 
-export function TransferStatus({ data, refId }) {
-  const t = unwrap(data, 'transfer')
-  const status = pick(t, ['status', 'state'])
-  const cur = t.currency || 'EUR'
+export default function Transfers() {
+  const [tab, setTab] = useState('send')
+  const { can, openTransfer } = useApp()
   return (
-    <div className="status-card">
-      <div className="status-top">
-        <div><small className="muted">Referencia</small><b className="mono">{pick(t, ['reference', 'ref', 'id'], refId)}</b></div>
-        <Badge s={status} />
-      </div>
-      {t.amount !== undefined && <div className="status-amt sens">{eur(t.amount, cur)}</div>}
-      <div className="route">
-        <div><small>Origen</small><b className="mono">{pick(t, ['from_iban'], pick(t.from, ['iban'], '—'))}</b></div>
-        <Icon n="send" size={18} />
-        <div><small>Destino</small><b className="mono">{pick(t, ['to_iban'], pick(t.to, ['iban'], '—'))}</b></div>
-      </div>
-      <KV rows={facts(t, ['reference', 'ref', 'id', 'status', 'state', 'amount', 'from_iban', 'to_iban', 'currency'], cur)} />
-    </div>
+    <section className="panel">
+      <Tabs value={tab} onChange={setTab} items={[['send', 'Enviar'], ['sched', 'Programadas'], ['benef', 'Destinatarios']]} />
+      {tab === 'send' && (
+        <>
+          <p className="muted">Mueve dinero a otra cuenta al instante, o prográmalo para más adelante. Si algo falla y reintentas, nunca se cobra dos veces.</p>
+          {can('me:transfer')
+            ? <div className="sheet-f" style={{ justifyContent: 'flex-start' }}><button className="btn primary big" onClick={() => openTransfer()}><Icon n="send" />Nueva transferencia</button><button className="btn big" onClick={() => openTransfer({ schedule: true })}><Icon n="cal" />Programar</button></div>
+            : <ErrorBox error={{ message: 'Tu sesión no tiene permiso para transferir.' }} />}
+          <Quick />
+        </>
+      )}
+      {tab === 'sched' && <Scheduled />}
+      {tab === 'benef' && <Beneficiaries />}
+    </section>
   )
 }
 
-export default function Transfers() {
-  const { iban, openTransfer, benef, setBenef, recent, tick, ibans } = useApp()
-  const [ref, setRef] = useState(''), [res, setRes] = useState(null), [err, setErr] = useState(null), [busy, setBusy] = useState(false)
-  const look = async (v = ref) => {
-    const r = v.trim(); if (!r) return
-    setBusy(true); setErr(null); setRes(null)
-    try { setRes({ ref: r, data: await api('transfers/' + encodeURIComponent(r)) }) } catch (e) { setErr(e) } finally { setBusy(false) }
-  }
-  const mine = recent.filter((x) => x.from === iban)
+function Quick() {
+  const { tick, openTransfer, can } = useApp()
+  const r = useRes('beneficiaries', tick)
+  const items = list(r.data, 'beneficiarios')
+  if (!items.length || !can('me:transfer')) return null
   return (
-    <div className="stack">
-      <div className="two">
-        <section className="panel">
-          <div className="sec-h"><h2>Enviar dinero</h2></div>
-          <p className="muted">Mueve dinero a otra cuenta de La Placeta al instante. Si algo falla y reintentas, nunca se cobra dos veces.</p>
-          <button className="btn primary big" onClick={() => openTransfer()}><Icon n="send" />Nueva transferencia</button>
-          {!!benef.length && (
-            <>
-              <h4 className="mt">Destinatarios guardados</h4>
-              <ul className="rows">
-                {benef.map((b) => (
-                  <li key={b.iban}><div className="row static">
-                    <span className="avatar">{(b.name || b.iban).slice(0, 1).toUpperCase()}</span>
-                    <span className="row-m"><b>{b.name || b.iban}</b><small className="mono">{b.iban}</small></span>
-                    <button className="chipbtn" onClick={() => openTransfer({ to: b.iban })}>Enviar</button>
-                    <button className="icon-btn" aria-label={'Quitar ' + b.iban} onClick={() => setBenef(benef.filter((x) => x.iban !== b.iban))}><Icon n="trash" size={16} /></button>
-                  </div></li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-        <section className="panel">
-          <div className="sec-h"><h2>Seguir una transferencia</h2></div>
-          <form className="inline" onSubmit={(e) => { e.preventDefault(); look() }}>
-            <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Referencia de la transferencia" aria-label="Referencia" />
-            <button className="btn primary" disabled={busy || !ref.trim()}>{busy ? <Spinner /> : 'Consultar'}</button>
-          </form>
-          <ErrorBox error={err} />
-          {res && <TransferStatus data={res.data} refId={res.ref} />}
-          {!res && !err && !busy && !mine.length && <Empty icon="swap" title="Consulta el estado" text="Pega la referencia que recibiste al enviar el dinero." />}
-          {!res && !!mine.length && (
-            <>
-              <h4 className="mt">Enviadas desde esta cuenta</h4>
-              <ul className="rows">
-                {mine.slice(0, 6).map((x) => (
-                  <li key={x.ref}><button className="row" onClick={() => { setRef(x.ref); look(x.ref) }}>
-                    <span className="dot out"><Icon n="up" size={18} /></span>
-                    <span className="row-m"><b>{eur(x.amount)} → {x.to}</b><small>{fmtDateTime(x.at)} · <span className="mono">{x.ref}</span></small></span>
-                    <span className="chipbtn">Ver estado</span>
-                  </button></li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-      </div>
-    </div>
+    <>
+      <h4 className="mt">Enviar a un destinatario guardado</h4>
+      <ul className="rows">
+        {items.slice(0, 6).map((b) => (
+          <li key={b.id || b.iban}><div className="row static">
+            <span className="avatar">{String(b.alias || b.iban).slice(0, 1).toUpperCase()}</span>
+            <span className="row-m"><b>{b.alias || b.iban}</b><small className="mono">{b.iban}</small></span>
+            <button className="chipbtn" onClick={() => openTransfer({ to: b.iban })}>Enviar</button>
+          </div></li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+function Scheduled() {
+  const { tick, bump, toast, openTransfer, can } = useApp()
+  const r = useRes('transfers/scheduled', tick)
+  const items = list(r.data, 'programadas')
+  const [sure, setSure] = useState(''), [busy, setBusy] = useState('')
+  const cancel = async (id) => {
+    setBusy(id)
+    try { await api('transfers/scheduled/' + encodeURIComponent(id), { method: 'DELETE' }); toast('Transferencia cancelada'); setSure(''); bump() } catch (e) { toast(e.message) } finally { setBusy('') }
+  }
+  return (
+    <>
+      <ErrorBox error={r.error} onRetry={r.reload} />
+      {r.loading && !r.data && <Skel n={3} />}
+      {r.data && !items.length && <Empty icon="cal" title="Sin transferencias programadas" text="Programa una transferencia única o periódica (alquiler, ahorro mensual…).">{can('me:transfer') && <button className="btn primary" onClick={() => openTransfer({ schedule: true })}>Programar una</button>}</Empty>}
+      <ul className="rows">
+        {items.map((p, i) => {
+          const id = String(p.id ?? p.ref ?? i), every = pick(p, ['periodicidad_dias'])
+          return (
+            <li key={id}><div className="row static">
+              <span className="dot out"><Icon n="cal" size={18} /></span>
+              <span className="row-m">
+                <b>{eur(pick(p, ['importe', 'amount'], 0))} → <span className="mono">{pick(p, ['hacia_iban'], '—')}</span></b>
+                <small>{fmtDateTime(pick(p, ['fecha', 'proxima', 'proximo']))}{every ? ` · cada ${every} días` : ' · una vez'}{pick(p, ['concepto']) ? ' · ' + p.concepto : ''}</small>
+              </span>
+              {can('me:transfer') && (sure === id
+                ? <><button className="chipbtn danger" disabled={busy === id} onClick={() => cancel(id)}>{busy === id ? <Spinner /> : 'Cancelar envío'}</button><button className="chipbtn" onClick={() => setSure('')}>No</button></>
+                : <button className="icon-btn" aria-label="Cancelar transferencia programada" onClick={() => setSure(id)}><Icon n="trash" size={16} /></button>)}
+            </div></li>
+          )
+        })}
+      </ul>
+    </>
+  )
+}
+
+function Beneficiaries() {
+  const { tick, bump, toast, openTransfer, can } = useApp()
+  const r = useRes('beneficiaries', tick)
+  const items = list(r.data, 'beneficiarios')
+  const [alias, setAlias] = useState(''), [iban, setIban] = useState(''), [busy, setBusy] = useState(false), [err, setErr] = useState(null), [sure, setSure] = useState('')
+  const [key, setKey] = useState(newKey)
+  const add = async (e) => {
+    e.preventDefault(); setBusy(true); setErr(null)
+    try { await api('beneficiaries', { method: 'POST', body: { alias, iban }, idem: key }); setAlias(''); setIban(''); setKey(newKey()); toast('Destinatario guardado'); bump() }
+    catch (x) { if (x.definitive) setKey(newKey()); setErr(x) } finally { setBusy(false) }
+  }
+  const del = async (id) => { try { await api('beneficiaries/' + encodeURIComponent(id), { method: 'DELETE' }); setSure(''); toast('Destinatario borrado'); bump() } catch (e) { toast(e.message) } }
+  return (
+    <>
+      {can('me:transfer') && (
+        <form className="field-row" onSubmit={add}>
+          <label>Nombre<input value={alias} onChange={(e) => setAlias(e.target.value)} maxLength={40} placeholder="Casa de mamá" /></label>
+          <label>IBAN<input value={iban} onChange={(e) => setIban(e.target.value)} className="mono" placeholder="PZ-0001-0009" spellCheck="false" /></label>
+          <button className="btn primary" disabled={busy || !alias.trim() || !iban.trim()}>{busy ? <Spinner /> : 'Guardar destinatario'}</button>
+        </form>
+      )}
+      <ErrorBox error={err} />
+      <ErrorBox error={r.error} onRetry={r.reload} />
+      {r.loading && !r.data && <Skel n={3} />}
+      {r.data && !items.length && <Empty icon="users" title="Aún no tienes destinatarios" text="Guarda las cuentas a las que envías dinero con frecuencia." />}
+      <ul className="rows">
+        {items.map((b) => {
+          const id = String(b.id ?? b.iban)
+          return (
+            <li key={id}><div className="row static">
+              <span className="avatar">{String(b.alias || b.iban).slice(0, 1).toUpperCase()}</span>
+              <span className="row-m"><b>{b.alias || b.iban}</b><small className="mono">{b.iban}</small></span>
+              {can('me:transfer') && <button className="chipbtn" onClick={() => openTransfer({ to: b.iban })}>Enviar</button>}
+              {can('me:transfer') && (sure === id
+                ? <><button className="chipbtn danger" onClick={() => del(id)}>Borrar</button><button className="chipbtn" onClick={() => setSure('')}>No</button></>
+                : <button className="icon-btn" aria-label={'Borrar ' + (b.alias || b.iban)} onClick={() => setSure(id)}><Icon n="trash" size={16} /></button>)}
+            </div></li>
+          )
+        })}
+      </ul>
+    </>
   )
 }

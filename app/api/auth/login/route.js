@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { appBase, setSession } from '../../../../lib/session'
+import { appBase } from '../../../../lib/session'
+import { startSession } from '../../../../lib/login'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,8 +12,8 @@ export async function GET(req) {
   // Acceso de pruebas (solo local, nunca en producción): DEV_LOGIN=1 npm run dev
   if (process.env.DEV_LOGIN === '1' && process.env.NODE_ENV !== 'production') {
     const r = NextResponse.redirect(base + '/')
-    setSession(r, { uid: 'dev-user', name: process.env.DEV_NAME || 'Cliente de prueba' })
-    return r
+    const err = await startSession(r, { uid: 'dev-user', name: process.env.DEV_NAME || 'Cliente de prueba', dip: process.env.DEV_DIP || '12345678Z' })
+    return err ? fail(err) : r
   }
   if (!process.env.PLACETAID_CLIENT_ID) return fail('Falta configurar PLACETAID_CLIENT_ID en el servidor.')
 

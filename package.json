@@ -1,13 +1,13 @@
 {
   "name": "banca-placeta",
   "private": true,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "mock": "node scripts/mock-api.mjs",
-    "dev:mock": "PLACETA_API_URL=http://localhost:4010/api/v1 PLACETA_API_KEY=plk_demo DEV_LOGIN=1 next dev",
+    "dev:mock": "PLACETA_API_URL=http://localhost:4010/api/v1 PLACETA_API_KEY=plk_demo PLACETA_API_SECRET=demo_secret WRITE_LIMIT=300 DEV_LOGIN=1 next dev",
     "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
