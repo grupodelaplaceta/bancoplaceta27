@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { readSession, sameOrigin, readGw, setGw } from '../../../lib/session'
 import { upstream, errMsg } from '../../../lib/upstream'
 import { gwConfig, isGwAdmin, cleanDip, isDip, cleanOrigin } from '../../../lib/gateway'
-import { isBusiness } from '../../../lib/kinds'
+import { isBusiness, isAdminRole } from '../../../lib/kinds'
 import { normIban, isIban, cleanAmount, cleanText } from '../../../lib/validate'
 import { list } from '../../../lib/shape'
 import { hit } from '../../../lib/ratelimit'
@@ -12,11 +12,11 @@ export const dynamic = 'force-dynamic'
 const J = (status, body) => NextResponse.json(body, { status, headers: { 'cache-control': 'no-store' } })
 const bad = (status, message) => J(status, { error: { message } })
 
-/** Cuentas de empresa de las que el usuario es titular (lo dice el banco con SU token, no el navegador). */
+/** Cuentas de empresa de las que el usuario es titular o cotitular (lo dice el banco con SU token, no el navegador). */
 async function companyAccounts(s) {
   const r = await upstream('me/accounts', { token: s.tok })
   if (r.status >= 300) return { error: r }
-  return { list: list(r.json, 'cuentas').filter((a) => isBusiness(a) && (!a.rol || a.rol === 'holder')) }
+  return { list: list(r.json, 'cuentas').filter((a) => isBusiness(a) && (!a.rol || isAdminRole(a.rol))) }
 }
 const approvedOrigins = async () => {
   const r = await upstream('bk/origenes', { signed: true })

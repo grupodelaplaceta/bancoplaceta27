@@ -6,15 +6,18 @@ import { useApp, Modal, Spinner, ErrorBox, Icon } from './ui'
 // Operaciones de entidad para operadores. El servidor valida todo (lib/ops.js); aquí solo se piden los datos
 // y se confirman las acciones que mueven dinero o cambian permisos.
 export default function Operaciones() {
-  const { toast } = useApp()
+  const { toast, iban, accounts } = useApp()
   const [cat, setCat] = useState(null), [err, setErr] = useState(null)
   const [sel, setSel] = useState(''), [vals, setVals] = useState({})
   const [confirming, setConfirming] = useState(false), [typed, setTyped] = useState('')
-  const [busy, setBusy] = useState(false), [result, setResult] = useState(null)
+  const [busy, setBusy] = useState(false), [result, setResult] = useState(null), [label, setLabel] = useState('Gestión')
 
+  // El catálogo depende de la cuenta activa (su tipo) y de que seas su titular o cotitular.
   useEffect(() => {
-    request('/api/ops').then((d) => { setCat(d.ops); setSel(d.ops[0]?.id || '') }).catch((e) => setErr(e))
-  }, [])
+    setCat(null); setErr(null); setResult(null); setVals({})
+    request('/api/ops?iban=' + encodeURIComponent(iban)).then((d) => { setCat(d.ops); setLabel(d.label); setSel(d.ops[0]?.id || '') }).catch((e) => setErr(e))
+  }, [iban])
+  const acc = (accounts || []).find((a) => a.iban === iban)
 
   const op = useMemo(() => (cat || []).find((o) => o.id === sel), [cat, sel])
   const groups = useMemo(() => {
@@ -30,7 +33,7 @@ export default function Operaciones() {
   const run = async () => {
     setBusy(true)
     try {
-      const d = await request('/api/ops', { method: 'POST', body: { op: op.id, valores: vals }, idem: op.idem ? newKey() : undefined })
+      const d = await request('/api/ops', { method: 'POST', body: { op: op.id, iban, valores: vals }, idem: op.idem ? newKey() : undefined })
       setResult(d); toast('Operación realizada'); setConfirming(false); setTyped('')
     } catch (e) { toast(e.message || 'No se ha podido completar la operación.') }
     finally { setBusy(false) }
@@ -39,7 +42,7 @@ export default function Operaciones() {
   const submit = (e) => {
     e.preventDefault()
     if (!op || missing.length) return
-    if (op.m === 'GET') { setBusy(true); request('/api/ops', { method: 'POST', body: { op: op.id, valores: vals } }).then(setResult).catch((x) => toast(x.message)).finally(() => setBusy(false)); return }
+    if (op.m === 'GET') { setBusy(true); request('/api/ops', { method: 'POST', body: { op: op.id, iban, valores: vals } }).then(setResult).catch((x) => toast(x.message)).finally(() => setBusy(false)); return }
     setConfirming(true)
   }
 
@@ -48,8 +51,8 @@ export default function Operaciones() {
 
   return (
     <section aria-labelledby="ops-h">
-      <h2 id="ops-h">Operaciones de entidad</h2>
-      <p className="muted">Solo visible para operadores. El banco aplica sus propias reglas (permisos, doble firma, presupuesto) con tu DIP de operador.</p>
+      <h2 id="ops-h">{label}</h2>
+      <p className="muted">Gestionas <b>{acc?.name || iban}</b> ({iban}) como titular o cotitular. Las funciones cambian según el tipo de cuenta. El banco aplica además sus propias reglas (permisos, doble firma, presupuesto) con tu DIP.</p>
 
       <div className="panel">
         <label className="field-row">
@@ -96,6 +99,7 @@ export default function Operaciones() {
       {result && (
         <div className="panel" aria-live="polite">
           <p className="hint"><Icon n="check" size={14} /> Respuesta del banco</p>
+          {/(clave|secret|secreto|api_?key|token)"\s*:\s*"[^"]{12,}/i.test(JSON.stringify(result)) && <div className="notice"><b>Copia ahora los valores secretos:</b> el banco no los vuelve a mostrar.</div>}
           <pre className="mono" style={{ whiteSpace: 'pre-wrap', overflowX: 'auto', fontSize: 12 }}>{JSON.stringify(result, null, 2)}</pre>
         </div>
       )}

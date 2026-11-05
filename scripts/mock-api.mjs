@@ -11,18 +11,20 @@ const iso = (t) => new Date(t).toISOString()
 const accounts = {
   'PZ-0001-0001': { iban: 'PZ-0001-0001', nombre: 'Cuenta corriente', tipo: 'personal', rol: 'holder', saldo: 1250.4, reservado: 20, limite_diario: 3000, descubierto: false },
   'PZ-0001-0002': { iban: 'PZ-0001-0002', nombre: 'Cuenta Junior', tipo: 'personal', rol: 'holder', saldo: 85, reservado: 0, limite_diario: 100, descubierto: false },
-  'PZ-0001-0004': { iban: 'PZ-0001-0004', nombre: 'Mi Empresa SL', tipo: 'empresa', rol: 'holder', saldo: 9000, reservado: 0, limite_diario: 20000, descubierto: false },
+  'PZ-0001-0004': { iban: 'PZ-0001-0004', nombre: 'Mi Empresa SL', tipo: 'empresa', rol: 'holder', saldo: 9000, reservado: 0, limite_diario: 20000, descubierto: false },  'PZ-0001-0005': { iban: 'PZ-0001-0005', nombre: 'Ayuntamiento de La Placeta', tipo: 'institucional', rol: 'holder', saldo: 250000, reservado: 0, limite_diario: 1000000, descubierto: false },
+  'PZ-0001-0006': { iban: 'PZ-0001-0006', nombre: 'Asociación Vecinal', tipo: 'institucional', rol: 'coholder', saldo: 4200, reservado: 0, limite_diario: 5000, descubierto: false },
+  'PZ-0001-0007': { iban: 'PZ-0001-0007', nombre: 'Fundación Cultural', tipo: 'institucional', rol: 'authorized', saldo: 1800, reservado: 0, limite_diario: 2000, descubierto: false },
 }
 const others = { 'PZ-0002-0100': 'Tienda Demo', 'PZ-0001-0009': 'María García' }
-const tx = { 'PZ-0001-0001': [], 'PZ-0001-0002': [], 'PZ-0001-0004': [] }
+const tx = { 'PZ-0001-0001': [], 'PZ-0001-0002': [], 'PZ-0001-0004': [], 'PZ-0001-0005': [], 'PZ-0001-0006': [], 'PZ-0001-0007': [] }
 const memos = ['Nómina', 'Mercadillo', 'Paga semanal', 'Pizza del viernes', 'Entradas cine', 'Regalo cumple', 'Devolución', 'Material colegio']
 for (let i = 0; i < 120; i++) {
   const out = i % 3 !== 0, amt = Math.round((Math.random() * 90 + 3) * 100) / 100
   tx['PZ-0001-0001'].push({ id: 't' + String(i).padStart(4, '0'), concepto: memos[i % memos.length], importe: amt, direccion: out ? 'salida' : 'entrada', fecha: iso(now - i * 0.7 * day - Math.random() * day / 3), estado: 'completed', referencia: 'TR-' + (1000 + i) })
 }
 tx['PZ-0001-0002'].push({ id: 'j1', concepto: 'Paga semanal', importe: 10, direccion: 'entrada', fecha: iso(now - 2 * day), estado: 'completed' })
-const cards = { 'PZ-0001-0001': [{ ref: 'TRJ-0001-000123', tipo: 'digital', ultimos4: '4821', estado: 'active', diseno: null }, { ref: 'TRJ-0001-000124', tipo: 'física', ultimos4: '1190', estado: 'suspended', diseno: null }], 'PZ-0001-0002': [], 'PZ-0001-0004': [] }
-const receipts = { 'PZ-0001-0001': [{ ref: 'REC-2026-0042', numero: 'REC-2026-0042', fecha: iso(now - 3 * day), importe: 12.5, concepto: 'Cuota de servicio', estado: 'issued' }], 'PZ-0001-0002': [], 'PZ-0001-0004': [] }
+const cards = { 'PZ-0001-0001': [{ ref: 'TRJ-0001-000123', tipo: 'digital', ultimos4: '4821', estado: 'active', diseno: null }, { ref: 'TRJ-0001-000124', tipo: 'física', ultimos4: '1190', estado: 'suspended', diseno: null }], 'PZ-0001-0002': [], 'PZ-0001-0004': [], 'PZ-0001-0005': [], 'PZ-0001-0006': [], 'PZ-0001-0007': [] }
+const receipts = { 'PZ-0001-0001': [{ ref: 'REC-2026-0042', numero: 'REC-2026-0042', fecha: iso(now - 3 * day), importe: 12.5, concepto: 'Cuota de servicio', estado: 'issued' }], 'PZ-0001-0002': [], 'PZ-0001-0004': [], 'PZ-0001-0005': [], 'PZ-0001-0006': [], 'PZ-0001-0007': [] }
 const designs = [
   { codigo: 'DIS-00001', nombre: 'Aurora', nivel: 'premium', rareza: 'epica', precio: 12.5, licencia: 2, descripcion: 'Diseño con aurora boreal animada', imagen_url: null, stock_disponible: 48 },
   { codigo: 'DIS-00002', nombre: 'Minimal', nivel: 'basico', rareza: 'comun', precio: 2, licencia: 1, descripcion: 'Líneas limpias', imagen_url: null, stock_disponible: 0 },
@@ -71,7 +73,7 @@ http.createServer(async (req, res) => {
     return (sig === want) || (E(res, 401, 'Firma no válida'), false)
   }
   // Rutas de entidad (bk/*) aún sin simular: exigen clave y firma y devuelven lo que llegó (para probar la app).
-  if (p.startsWith('bk/') && !p.startsWith('bk/checkouts') && p !== 'bk/origenes') {
+  if ((p.startsWith('bk/') && !p.startsWith('bk/checkouts') && p !== 'bk/origenes') || /^(accounts|transfers|designs)(\/|$)/.test(p)) {
     if (!signedOk()) return
     let cuerpo = null; try { cuerpo = raw ? JSON.parse(raw) : null } catch {}
     return send(res, 200, { simulado: true, metodo: req.method, ruta: p, query: Object.fromEntries(u.searchParams), cuerpo })
