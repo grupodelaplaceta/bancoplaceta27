@@ -1,29 +1,14 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { appBase } from '../../../../lib/session'
-import { startSession } from '../../../../lib/login'
-
-export const dynamic = 'force-dynamic'
-
-export async function GET(req) {
-  const base = appBase(req)
-  const fail = (m) => NextResponse.redirect(base + '/?error=' + encodeURIComponent(m))
-
-  // Acceso de pruebas (solo local, nunca en producción): DEV_LOGIN=1 npm run dev
-  if (process.env.DEV_LOGIN === '1' && process.env.NODE_ENV !== 'production') {
-    const r = NextResponse.redirect(base + '/')
-    const err = await startSession(r, { uid: 'dev-user', name: process.env.DEV_NAME || 'Cliente de prueba', dip: process.env.DEV_DIP || '12345678Z' })
-    return err ? fail(err) : r
-  }
-  if (!process.env.PLACETAID_CLIENT_ID) return fail('Falta configurar PLACETAID_CLIENT_ID en el servidor.')
-
+export async function GET() {
   const state = crypto.randomBytes(24).toString('base64url')
+  const app = process.env.APP_URL || 'https://bancoplaceta27.vercel.app'
   const u = new URL('https://placetaid-web-plan2027.vercel.app/')
   u.searchParams.set('client_id', process.env.PLACETAID_CLIENT_ID)
-  u.searchParams.set('redirect_uri', base + '/placetaid')
+  u.searchParams.set('redirect_uri', app + '/placetaid')
   u.searchParams.set('service', 'general')
   u.searchParams.set('state', state)
   const r = NextResponse.redirect(u)
-  r.cookies.set('pid_state', state, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 600, path: '/' })
+  r.cookies.set('pid_state', state, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 600, path: '/' })
   return r
 }
