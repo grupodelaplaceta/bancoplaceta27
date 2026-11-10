@@ -1,0 +1,33 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'es.laplaceta.banco'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'es.laplaceta.banco'
+        minSdk 24
+        targetSdk 34
+        versionCode 3
+        versionName '1.2'
+        // URL de tu backend desplegado en Vercel (APP_URL). Cámbiala aquí si usas otro dominio.
+        buildConfigField 'String', 'APP_URL', '"https://bancoplaceta27.vercel.app"'
+        // Dominio de PlacetaID (el login se abre dentro de la app).
+        buildConfigField 'String', 'LOGIN_HOST', '"placetaid-web-plan2027.vercel.app"'
+    }
+
+    buildFeatures { buildConfig true }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
